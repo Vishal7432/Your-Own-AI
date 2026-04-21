@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your Own AI</title>
+  </head>
+  <body>
+    <h2>Ask AI</h2>
+
+    <input type="text" id="question" placeholder="Ask something..." />
+    <button onclick="askAI()">Ask</button>
+
+    <p><b>Answer:</b></p>
+    <div id="answer"></div>
+
+    <script>
+      async function askAI() {
+        let q = document.getElementById("question").value;
+
+        let res = await fetch("http://localhost:8080/ask", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ question: q }),
+        });
+
+        let data = await res.json();
+
+        console.log(data);
+
+        document.getElementById("answer").innerText = data.answer;
+      }
+    </script>
+  </body>
+</html>

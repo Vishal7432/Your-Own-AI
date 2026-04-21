@@ -1,3 +1,4 @@
+
 import stores.VectorDatabase;
 import model.VectorItem;
 import service.RAGService;
@@ -11,7 +12,6 @@ public class Main {
         db.add(new VectorItem(2, "AI is future", "tech", new float[] { 0.5f, 0.6f }));
 
         String response = RAGService.ask(db, "What is java?");
-        
 
         System.out.println(response);
     }

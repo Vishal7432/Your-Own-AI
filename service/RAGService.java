@@ -3,7 +3,7 @@ package service;
 import java.util.*;
 import stores.VectorDatabase;
 import model.VectorItem;
-import service.LLMService;
+// import service.LLMService;
 
 public class RAGService {
 
@@ -16,17 +16,22 @@ public class RAGService {
             return "Error getting embedding: " + e.getMessage();
         }
 
-        List<VectorItem> context = SearchService.topK(db, queryVec, 3);
+        List<VectorItem> results = SearchService.topK(db, queryVec, 3);
 
         StringBuilder combined = new StringBuilder();
 
-        for (VectorItem v : context) {
-            combined.append(v.metadata).append("\n");
+        for (VectorItem v : results) {
+            combined.append(v.getText()).append("\n");
         }
+
+        String context = combined.toString();
+
         System.out.println("Calling LLM...");
-        // send to LLM
+        System.out.println("Context:\n" + context);
+        System.out.println("Query: " + query);
+
         try {
-            return LLMService.askLLM(combined.toString(), query);
+            return LLMService.askLLM(context, query);
         } catch (Exception e) {
             return "Error calling LLM: " + e.getMessage();
         }
