@@ -46,7 +46,18 @@ public class Server {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
 
+            // Handle CORS preflight
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(200, -1);
+                return;
+            }
+
             if ("POST".equals(exchange.getRequestMethod())) {
+
+                System.out.println("Request received");
 
                 // 1. request read
                 InputStream is = exchange.getRequestBody();
@@ -57,15 +68,20 @@ public class Server {
                         .replace("\"}", "");
 
                 String answer = "";
+                System.out.println("Question = " + question);
 
                 try {
                     // 2. RAG call (IMPORTANT FIX)
                     answer = RAGService.ask(db, question);
+                    System.out.println("RAG finished");
                 } catch (Exception e) {
                     answer = "Error: " + e.getMessage();
                 }
 
                 // 3. response JSON
+                answer = answer.replace("\"", "\\\"")
+                        .replace("\n", " ");
+
                 String response = "{\"answer\":\"" + answer + "\"}";
 
                 // 4. headers (CORS fix)

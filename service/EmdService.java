@@ -16,6 +16,9 @@ public class EmdService {
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setDoOutput(true);
 
+        conn.setConnectTimeout(10000); // 10 sec
+        conn.setReadTimeout(20000); // 20 sec
+
         // parse JSON → float[]
 
         String jsonInput = "{ \"model\": \"nomic-embed-text\", \"prompt\": \"" + text + "\" }";

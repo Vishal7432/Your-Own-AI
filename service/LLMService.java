@@ -17,8 +17,8 @@ public class LLMService {
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
-                // conn.setConnectTimeout(10000); // 10 sec
-                // conn.setReadTimeout(20000); // 20 sec
+                conn.setConnectTimeout(10000); // 10 sec
+                conn.setReadTimeout(60000); // 60 sec
 
                 // Prompt (VERY IMPORTANT)
                 String prompt = "Context:\n" + context + "\n\n" +
@@ -53,7 +53,7 @@ public class LLMService {
 
                 // response extract
                 int start = res.indexOf("\"response\":\"") + 12;
-                int end = res.lastIndexOf("\"");
+                int end = res.indexOf("\",\"done\"");
 
                 String answer = res.substring(start, end);
 

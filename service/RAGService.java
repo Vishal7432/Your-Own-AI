@@ -27,8 +27,8 @@ public class RAGService {
         String context = combined.toString();
 
         System.out.println("Calling LLM...");
-        System.out.println("Context:\n" + context);
-        System.out.println("Query: " + query);
+        // System.out.println("Context:\n" + context);
+        // System.out.println("Query: " + query);
 
         try {
             return LLMService.askLLM(context, query);

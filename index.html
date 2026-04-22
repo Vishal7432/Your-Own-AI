@@ -1,4 +1,4 @@
-<!doctype html>
+<!-- <!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -16,6 +16,7 @@
 
     <script>
       async function askAI() {
+        console.log("Button clicked");
         let q = document.getElementById("question").value;
 
         let res = await fetch("http://localhost:8080/ask", {
@@ -32,6 +33,186 @@
 
         document.getElementById("answer").innerText = data.answer;
       }
+    </script>
+  </body>
+</html> -->
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Your Own AI — Full UI</title>
+    <link rel="stylesheet" href="Index.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Your Own AI</h1>
+      <span class="badge">HNSW</span>
+      <span class="badge">KD-TREE</span>
+      <span class="badge ok">OLLAMA ✓</span>
+    </header>
+
+    <div class="layout">
+      <div class="left">
+        <div class="sec">QUERY SEARCH</div>
+        <input placeholder="binary tree, java, dp..." />
+        <button>⚡ Search</button>
+
+        <div class="sec">ALGORITHM</div>
+        <div class="row">
+          <div class="algo active">HNSW</div>
+          <div class="algo">KD</div>
+          <div class="algo">BRUTE</div>
+        </div>
+
+        <div class="sec">DISTANCE</div>
+        <select>
+          <option>Cosine</option>
+          <option>Euclidean</option>
+        </select>
+
+        <div class="sec">INSERT VECTOR</div>
+        <input placeholder="metadata" />
+        <select>
+          <option>CS</option>
+          <option>Math</option>
+        </select>
+        <button>+ Insert</button>
+
+        <div class="sec">BENCHMARK</div>
+        <button>Compare Algorithms</button>
+      </div>
+
+      <div class="center">
+        <canvas id="graph"></canvas>
+        <div class="fake-dot d1"></div>
+        <div class="fake-dot d2"></div>
+        <div class="fake-dot d3"></div>
+        <div class="star">✦</div>
+      </div>
+
+      <div class="right">
+        <div class="tabs">
+          <div class="tab active" onclick="showTab(0)">SEARCH</div>
+          <div class="tab" onclick="showTab(1)">DOCS</div>
+          <div class="tab" onclick="showTab(2)">ASK AI</div>
+        </div>
+
+        <div class="tabpane active">
+          <div class="card">
+            <div>Search Latency</div>
+            <h2 style="margin-top: 10px; color: var(--cyan)">0.42 ms</h2>
+            <div class="small">HNSW · cosine · k=5</div>
+          </div>
+
+          <div class="card">
+            <div>Top Matches</div>
+            <div class="result">#1 Java is a programming language</div>
+            <div class="result">#2 AI is future</div>
+          </div>
+        </div>
+
+        <div class="tabpane">
+          <div class="card">
+            <div>Insert Documents (RAG)</div>
+            <input style="margin-top: 10px" placeholder="Document title" />
+            <textarea
+              style="margin-top: 10px"
+              placeholder="Paste notes..."
+            ></textarea>
+            <button>Embed & Insert</button>
+          </div>
+          <div class="card">
+            <div>Stored Documents</div>
+            <div class="result">Dynamic Programming Notes</div>
+            <div class="result">Java Collections</div>
+          </div>
+        </div>
+
+        <div class="tabpane">
+          <div class="card">
+            <textarea
+              id="question"
+              placeholder="Ask a question about documents..."
+            ></textarea>
+            <button onclick="askAI()">🤖 Ask AI</button>
+          </div>
+
+          <div class="chatq">What is Java?</div>
+          <div class="chata">
+            <div style="color: var(--green); margin-bottom: 8px">
+              LLM ANSWER
+            </div id="answer">
+            Java is a programming language used for building applications. Based
+            on retrieved context, it is strongly associated with software
+            development.
+            <div style="margin-top: 12px">
+              <span class="ctx">Context 1</span>
+              <span class="ctx">Context 2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function askAI() {
+        console.log("Button clicked");
+        let q = document.getElementById("question").value;
+        console.log(q);
+
+        document.getElementsByClassName("chatq").innerHTML = q;
+
+        let res = await fetch("http://localhost:8080/ask", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ question: q }),
+        });
+
+        let data = await res.json();
+
+        console.log(data);
+
+        document.getElementById("answer").innerHTML = data.answer;
+      }
+
+      function showTab(i) {
+        document
+          .querySelectorAll(".tab")
+          .forEach((t, n) => t.classList.toggle("active", n === i));
+        document
+          .querySelectorAll(".tabpane")
+          .forEach((p, n) => p.classList.toggle("active", n === i));
+      }
+      const c = document.getElementById("graph");
+      const ctx = c.getContext("2d");
+      function resize() {
+        c.width = c.clientWidth;
+        c.height = c.clientHeight;
+        draw();
+      }
+      function draw() {
+        ctx.clearRect(0, 0, c.width, c.height);
+        for (let i = 0; i < 12; i++) {
+          ctx.strokeStyle = "#1d1d35";
+          ctx.beginPath();
+          ctx.moveTo((i * c.width) / 12, 0);
+          ctx.lineTo((i * c.width) / 12, c.height);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, (i * c.height) / 12);
+          ctx.lineTo(c.width, (i * c.height) / 12);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#2f2f50";
+        ctx.font = "18px monospace";
+        ctx.fillText("Semantic Vector Space (PCA)", 40, 40);
+      }
+      resize();
+      window.onresize = resize;
     </script>
   </body>
 </html>
