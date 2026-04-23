@@ -17,6 +17,9 @@ public class RAGService {
         }
 
         List<VectorItem> results = SearchService.topK(db, queryVec, 3);
+        for (VectorItem v : results) {
+            System.out.println(v.text);
+        }
 
         StringBuilder combined = new StringBuilder();
 

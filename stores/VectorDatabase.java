@@ -13,4 +13,9 @@ public class VectorDatabase {
     public List<VectorItem> getAll() {
         return data;
     }
+
+    public int size() {
+        // TODO Auto-generated method stub
+        return data.size();
+    }
 }

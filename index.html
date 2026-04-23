@@ -1,42 +1,3 @@
-<!-- <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Your Own AI</title>
-  </head>
-  <body>
-    <h2>Ask AI</h2>
-
-    <input type="text" id="question" placeholder="Ask something..." />
-    <button onclick="askAI()">Ask</button>
-
-    <p><b>Answer:</b></p>
-    <div id="answer"></div>
-
-    <script>
-      async function askAI() {
-        console.log("Button clicked");
-        let q = document.getElementById("question").value;
-
-        let res = await fetch("http://localhost:8080/ask", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ question: q }),
-        });
-
-        let data = await res.json();
-
-        console.log(data);
-
-        document.getElementById("answer").innerText = data.answer;
-      }
-    </script>
-  </body>
-</html> -->
-
 <!doctype html>
 <html lang="en">
   <head>
@@ -118,10 +79,11 @@
             <div>Insert Documents (RAG)</div>
             <input style="margin-top: 10px" placeholder="Document title" />
             <textarea
+              id="doc"
               style="margin-top: 10px"
               placeholder="Paste notes..."
             ></textarea>
-            <button>Embed & Insert</button>
+            <button onclick="insertDoc()">Embed & Insert</button>
           </div>
           <div class="card">
             <div>Stored Documents</div>
@@ -143,10 +105,10 @@
           <div class="chata">
             <div style="color: var(--green); margin-bottom: 8px">
               LLM ANSWER
-            </div id="answer">
-            Java is a programming language used for building applications. Based
-            on retrieved context, it is strongly associated with software
-            development.
+            </div>
+
+            <div id="answer"></div>
+
             <div style="margin-top: 12px">
               <span class="ctx">Context 1</span>
               <span class="ctx">Context 2</span>
@@ -157,12 +119,19 @@
     </div>
 
     <script>
+      ///  this is methods used in ask AI
+      document
+        .getElementById("question")
+        .addEventListener("keydown", function (e) {
+          if (e.key === "Enter") askAI();
+        });
       async function askAI() {
         console.log("Button clicked");
         let q = document.getElementById("question").value;
         console.log(q);
 
-        document.getElementsByClassName("chatq").innerHTML = q;
+        document.querySelector(".chatq").innerHTML = q;
+        document.getElementById("answer").innerHTML = "Thinking...";
 
         let res = await fetch("http://localhost:8080/ask", {
           method: "POST",
@@ -175,8 +144,27 @@
         let data = await res.json();
 
         console.log(data);
-
         document.getElementById("answer").innerHTML = data.answer;
+      }
+
+      // document insert methods
+      async function insertDoc() {
+        let doc = document.getElementById("doc").value;
+        console.log(doc);
+
+        let res = await fetch("http://localhost:8080/insertDoc", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ doc: doc }),
+        });
+
+        let data = await res.json();
+
+        console.log(data);
+
+        alert("Document inserted!");
       }
 
       function showTab(i) {

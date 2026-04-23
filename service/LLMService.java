@@ -21,9 +21,12 @@ public class LLMService {
                 conn.setReadTimeout(60000); // 60 sec
 
                 // Prompt (VERY IMPORTANT)
-                String prompt = "Context:\n" + context + "\n\n" +
-                                "Question: " + "\n" +
-                                "Give a short direct answer:\n";
+                String prompt = "You are a retrieval QA system.\n" +
+                                "Answer strictly from retrieved text.\n" +
+                                "Return words from context only.\n\n" +
+                                context +
+                                "\nQuestion: " + question +
+                                "\nAnswer:";
 
                 String safePrompt = prompt
                                 .replace("\\", "\\\\")
@@ -31,7 +34,7 @@ public class LLMService {
                                 .replace("\n", "\\n");
 
                 String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
-                                + "\", \"stream\": false, \"num_predict\": 15}";
+                                + "\", \"stream\": false, \"temperature\": 0, \"num_predict\": 15}";
 
                 OutputStream os = conn.getOutputStream();
                 os.write(jsonInput.getBytes("utf-8"));
