@@ -86,6 +86,20 @@
             <button onclick="insertDoc()">Embed & Insert</button>
           </div>
           <div class="card">
+            <div>Upload PDF</div>
+            <input
+              type="file"
+              id="pdfFile"
+              accept=".pdf"
+              style="margin-top: 10px"
+            />
+            <button onclick="uploadPDF()">📄 Upload & Embed PDF</button>
+            <div
+              id="pdfStatus"
+              style="margin-top: 8px; font-size: 12px; color: var(--green)"
+            ></div>
+          </div>
+          <div class="card">
             <div>Stored Documents</div>
             <div class="result">Dynamic Programming Notes</div>
             <div class="result">Java Collections</div>
@@ -128,23 +142,42 @@
       async function askAI() {
         console.log("Button clicked");
         let q = document.getElementById("question").value;
-        console.log(q);
+        if (!q.trim()) return;
 
         document.querySelector(".chatq").innerHTML = q;
-        document.getElementById("answer").innerHTML = "Thinking...";
+        document.getElementById("answer").innerHTML = "thinking... ⏳";
 
-        let res = await fetch("http://localhost:8080/ask", {
+        // ✅ SSE se stream receive karo
+        const res = await fetch("http://localhost:8080/ask", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question: q }),
         });
 
-        let data = await res.json();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
 
-        console.log(data);
-        document.getElementById("answer").innerHTML = data.answer;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (let line of lines) {
+            if (line.startsWith("data: ")) {
+              let token = line.replace("data: ", "");
+              if (token === "[DONE]") break;
+
+              // ✅ Word by word append karo
+              document.getElementById("answer").innerHTML += token;
+            }
+          }
+        }
+
+        document.getElementById("question").value = "";
       }
 
       // document insert methods
@@ -165,6 +198,37 @@
         console.log(data);
 
         alert("Document inserted!");
+      }
+
+      // this method or function basicaly use for PDF Upload
+      async function uploadPDF() {
+        let file = document.getElementById("pdfFile").files[0];
+        if (!file) {
+          alert("Pehle PDF select karo!");
+          return;
+        }
+
+        document.getElementById("pdfStatus").innerHTML = "Uploading... ⏳";
+
+        let formData = file.arrayBuffer().then(async (buffer) => {
+          let res = await fetch("http://localhost:8080/insertPDF", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/pdf",
+            },
+            body: buffer,
+          });
+
+          let data = await res.json();
+
+          if (data.status === "ok") {
+            document.getElementById("pdfStatus").innerHTML =
+              "✅ " + data.chunks + " chunks inserted!";
+          } else {
+            document.getElementById("pdfStatus").innerHTML =
+              "❌ Error: " + data.message;
+          }
+        });
       }
 
       function showTab(i) {

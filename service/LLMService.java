@@ -7,9 +7,6 @@ public class LLMService {
 
         public static String askLLM(String context, String question) throws Exception {
 
-                // URL url = new URL("http://localhost:11434/api/generate");
-                // HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
                 URI uri = URI.create("http://localhost:11434/api/generate");
                 URL url = uri.toURL();
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -17,52 +14,53 @@ public class LLMService {
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
-                conn.setConnectTimeout(10000); // 10 sec
-                conn.setReadTimeout(60000); // 60 sec
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(12000);
 
-                // Prompt (VERY IMPORTANT)
-                String prompt = "You are a retrieval QA system.\n" +
-                                "Answer strictly from retrieved text.\n" +
-                                "Return words from context only.\n\n" +
-                                context +
-                                "\nQuestion: " + question +
-                                "\nAnswer:";
+                String prompt = context + " Q: " + question + " A:";
 
                 String safePrompt = prompt
                                 .replace("\\", "\\\\")
                                 .replace("\"", "\\\"")
                                 .replace("\n", "\\n");
 
+                // ✅ stream: true karo
                 String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
-                                + "\", \"stream\": false, \"temperature\": 0, \"num_predict\": 15}";
+                                + "\", \"stream\": true, \"temperature\": 0, \"num_predict\": 80}";
 
                 OutputStream os = conn.getOutputStream();
                 os.write(jsonInput.getBytes("utf-8"));
                 os.flush();
 
+                // ✅ Line by line read karo
                 BufferedReader br = new BufferedReader(
                                 new InputStreamReader(conn.getInputStream()));
 
-                StringBuilder response = new StringBuilder();
+                StringBuilder fullAnswer = new StringBuilder();
                 String line;
-                // System.out.println(jsonInput);
 
                 while ((line = br.readLine()) != null) {
-                        response.append(line);
+                        if (line.isEmpty())
+                                continue;
+
+                        // har line ek JSON chunk hai
+                        int start = line.indexOf("\"response\":\"") + 12;
+                        int end = line.indexOf("\"", start);
+
+                        if (start > 11 && end > start) {
+                                String token = line.substring(start, end);
+                                token = token.replace("\\n", " ");
+                                fullAnswer.append(token);
+                        }
+
+                        // done check karo
+                        if (line.contains("\"done\":true"))
+                                break;
                 }
+
                 br.close();
-
-                String res = response.toString();
-
-                // response extract
-                int start = res.indexOf("\"response\":\"") + 12;
-                int end = res.indexOf("\",\"done\"");
-
-                String answer = res.substring(start, end);
-
                 conn.disconnect();
 
-                answer = answer.replace("\\n", " ").trim();
-                return answer;
+                return fullAnswer.toString().trim();
         }
 }

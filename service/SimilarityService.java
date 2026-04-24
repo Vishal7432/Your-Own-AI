@@ -1,6 +1,6 @@
 package service;
 
-class SimilarityService {
+public class SimilarityService {
 
     public static float cosine(float[] a, float[] b) {
         float dot = 0, normA = 0, normB = 0;

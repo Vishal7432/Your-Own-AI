@@ -5,7 +5,7 @@ import model.VectorItem;
 import stores.VectorDatabase;
 
 // searching using Brute Force.
-class SearchService {
+public class SearchService {
 
     public static List<VectorItem> topK(VectorDatabase db, float[] query, int k) {
 

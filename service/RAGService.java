@@ -16,7 +16,7 @@ public class RAGService {
             return "Error getting embedding: " + e.getMessage();
         }
 
-        List<VectorItem> results = SearchService.topK(db, queryVec, 3);
+        List<VectorItem> results = SearchService.topK(db, queryVec, 1);
         for (VectorItem v : results) {
             System.out.println(v.text);
         }
@@ -27,7 +27,11 @@ public class RAGService {
             combined.append(v.getText()).append("\n");
         }
 
+        // Sirf pehle 300 characters lo (tinyllama ke liye)
         String context = combined.toString();
+        if (context.length() > 150) {
+            context = context.substring(0, 150);
+        }
 
         System.out.println("Calling LLM...");
         // System.out.println("Context:\n" + context);
