@@ -42,6 +42,7 @@ public class Server {
         server.createContext("/ask", new AskHandler(db));
         server.createContext("/insertDoc", new InsertHandler(db));
         server.createContext("/insertPDF", new PDFHandler(db));
+        server.createContext("/search", new SearchHandler(db));
 
         server.setExecutor(null);
         server.start();
@@ -77,10 +78,17 @@ public class Server {
                 InputStream is = exchange.getRequestBody();
                 String body = new String(is.readAllBytes());
 
-                String question = body.replace("{\"question\":\"", "")
-                        .replace("\"}", "");
+                String question = "";
+                String algo = "bruteforce";
 
-                System.out.println("Question = " + question);
+                if (body.contains("\"algo\":\"")) {
+                    question = body.split("\"question\":\"")[1].split("\"")[0];
+                    algo = body.split("\"algo\":\"")[1].split("\"")[0];
+                } else {
+                    question = body.replace("{\"question\":\"", "").replace("\"}", "");
+                }
+
+                System.out.println("Question = " + question + " | Algo = " + algo);
 
                 // ✅ Streaming headers
                 exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -94,7 +102,8 @@ public class Server {
                 try {
                     // Embedding + Search
                     float[] queryVec = service.EmdService.getEmbedding(question);
-                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 1);
+                    // Ab — default brute force
+                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 1, algo);
 
                     StringBuilder combined = new StringBuilder();
                     for (model.VectorItem v : results) {
@@ -314,6 +323,89 @@ public class Server {
                     OutputStream os = exchange.getResponseBody();
                     os.write(response.getBytes());
                     os.close();
+                }
+            }
+        }
+    }
+
+    static class SearchHandler implements HttpHandler {
+
+        private VectorDatabase db;
+
+        public SearchHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        public void handle(HttpExchange exchange) throws IOException {
+
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
+            if ("POST".equals(exchange.getRequestMethod())) {
+
+                String body = new String(exchange.getRequestBody().readAllBytes());
+
+                // parse query aur algo
+                String query = "";
+                String algo = "bruteforce";
+
+                if (body.contains("\"algo\":\"")) {
+                    query = body.split("\"query\":\"")[1].split("\"")[0];
+                    algo = body.split("\"algo\":\"")[1].split("\"")[0];
+                } else {
+                    query = body.replace("{\"query\":\"", "").replace("\"}", "");
+                }
+
+                System.out.println("Search: " + query + " | Algo: " + algo);
+
+                try {
+                    // ✅ Embedding + timing
+                    float[] queryVec = service.EmdService.getEmbedding(query);
+
+                    long startTime = System.currentTimeMillis();
+
+                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 5, algo);
+
+                    long latency = System.currentTimeMillis() - startTime;
+
+                    // ✅ JSON response banao
+                    StringBuilder json = new StringBuilder();
+                    json.append("{\"latency\":").append(latency).append(",\"results\":[");
+
+                    for (int i = 0; i < results.size(); i++) {
+                        model.VectorItem v = results.get(i);
+                        String text = v.getText()
+                                .replace("\"", "\\\"")
+                                .replace("\n", " ");
+                        if (text.length() > 100)
+                            text = text.substring(0, 100);
+
+                        json.append("{\"rank\":").append(i + 1)
+                                .append(",\"text\":\"").append(text).append("\"")
+                                .append(",\"category\":\"").append(v.category).append("\"}");
+
+                        if (i < results.size() - 1)
+                            json.append(",");
+                    }
+                    json.append("]}");
+
+                    String response = json.toString();
+
+                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    exchange.sendResponseHeaders(200, response.length());
+
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(response.getBytes());
+                    os.close();
+
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             }
         }
