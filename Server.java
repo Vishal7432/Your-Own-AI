@@ -115,68 +115,68 @@ public class Server {
                         context = context.substring(0, 300);
                     }
 
-                    // ✅ Context word by word stream karo
-                    String[] words = context.split(" ");
+                    // // ✅ Context word by word stream karo
+                    // String[] words = context.split(" ");
 
-                    for (String word : words) {
-                        if (word.isEmpty())
-                            continue;
-
-                        writer.write("data: " + word + " \n\n");
-                        writer.flush();
-
-                        Thread.sleep(80);
-                    }
-
-                    // // ✅ Ollama streaming call
-                    // URI uri = URI.create("http://localhost:11434/api/generate");
-                    // URL url = uri.toURL();
-                    // HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    // conn.setRequestMethod("POST");
-                    // conn.setRequestProperty("Content-Type", "application/json");
-                    // conn.setDoOutput(true);
-                    // conn.setConnectTimeout(10000);
-                    // conn.setReadTimeout(180000);
-
-                    // String prompt = context + " Q: " + question + " A:";
-                    // String safePrompt = prompt
-                    // .replace("\\", "\\\\")
-                    // .replace("\"", "\\\"")
-                    // .replace("\n", "\\n");
-
-                    // String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
-                    // + "\", \"stream\": true, \"temperature\": 0, \"num_predict\": 80}";
-
-                    // OutputStream ollamaOs = conn.getOutputStream();
-                    // ollamaOs.write(jsonInput.getBytes("utf-8"));
-                    // ollamaOs.flush();
-
-                    // BufferedReader br = new BufferedReader(
-                    // new InputStreamReader(conn.getInputStream()));
-
-                    // String line;
-                    // while ((line = br.readLine()) != null) {
-                    // if (line.isEmpty())
+                    // for (String word : words) {
+                    // if (word.isEmpty())
                     // continue;
 
-                    // int start = line.indexOf("\"response\":\"") + 12;
-                    // int end = line.indexOf("\"", start);
-
-                    // if (start > 11 && end > start) {
-                    // String token = line.substring(start, end);
-                    // token = token.replace("\\n", " ");
-
-                    // // ✅ SSE format mein bhejo
-                    // writer.write("data: " + token + "\n\n");
+                    // writer.write("data: " + word + " \n\n");
                     // writer.flush();
+
+                    // Thread.sleep(80);
                     // }
 
-                    // if (line.contains("\"done\":true"))
-                    // break;
-                    // }
+                    // ✅ Ollama streaming call
+                    URI uri = URI.create("http://localhost:11434/api/generate");
+                    URL url = uri.toURL();
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setDoOutput(true);
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(180000);
 
-                    // br.close();
-                    // conn.disconnect();
+                    String prompt = context + " Q: " + question + " A:";
+                    String safePrompt = prompt
+                            .replace("\\", "\\\\")
+                            .replace("\"", "\\\"")
+                            .replace("\n", "\\n");
+
+                    String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
+                            + "\", \"stream\": true, \"temperature\": 0, \"num_predict\": 80}";
+
+                    OutputStream ollamaOs = conn.getOutputStream();
+                    ollamaOs.write(jsonInput.getBytes("utf-8"));
+                    ollamaOs.flush();
+
+                    BufferedReader br = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream()));
+
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        if (line.isEmpty())
+                            continue;
+
+                        int start = line.indexOf("\"response\":\"") + 12;
+                        int end = line.indexOf("\"", start);
+
+                        if (start > 11 && end > start) {
+                            String token = line.substring(start, end);
+                            token = token.replace("\\n", " ");
+
+                            // ✅ SSE format mein bhejo
+                            writer.write("data: " + token + "\n\n");
+                            writer.flush();
+                        }
+
+                        if (line.contains("\"done\":true"))
+                            break;
+                    }
+
+                    br.close();
+                    conn.disconnect();
 
                 } catch (Exception e) {
                     writer.write("data: Error: " + e.getMessage() + "\n\n");
@@ -394,14 +394,15 @@ public class Server {
                     }
                     json.append("]}");
 
-                    String response = json.toString();
+                    String response = json.toString()
 
                     exchange.getResponseHeaders().add("Content-Type", "application/json");
                     exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(200, response.length());
+                    byte[] responseBytes = response.getBytes("UTF-8");
+exchange.sendResponseHeaders(200, responseBytes.length);
 
                     OutputStream os = exchange.getResponseBody();
-                    os.write(response.getBytes());
+                    os.write(responseBytes);
                     os.close();
 
                 } catch (Exception e) {

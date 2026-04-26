@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Your Own AI — Full UI</title>
+    <link rel="stylesheet" href="Index.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Your Own AI</h1>
+      <span class="badge">HNSW</span>
+      <span class="badge">KD-TREE</span>
+      <span class="badge ok">OLLAMA ✓</span>
+    </header>
+
+    <div class="layout">
+      <div class="left">
+        <div class="sec">QUERY SEARCH</div>
+        <input id="searchInput" placeholder="binary tree, java, dp..." />
+        <button onclick="runSearch()">⚡ Search</button>
+
+        <div class="sec">ALGORITHM</div>
+        <div class="row">
+          <div class="algo active" onclick="setAlgo(this)">HNSW</div>
+          <div class="algo" onclick="setAlgo(this)">KD</div>
+          <div class="algo" onclick="setAlgo(this)">BRUTE</div>
+        </div>
+
+        <div class="sec">DISTANCE</div>
+        <select>
+          <option>Cosine</option>
+          <option>Euclidean</option>
+        </select>
+
+        <div class="sec">INSERT VECTOR</div>
+        <input placeholder="metadata" />
+        <select>
+          <option>CS</option>
+          <option>Math</option>
+        </select>
+        <button>+ Insert</button>
+
+        <div class="sec">BENCHMARK</div>
+        <button>Compare Algorithms</button>
+      </div>
+
+      <div class="center">
+        <canvas id="graph"></canvas>
+        <div class="fake-dot d1"></div>
+        <div class="fake-dot d2"></div>
+        <div class="fake-dot d3"></div>
+        <div class="star">✦</div>
+      </div>
+
+      <div class="right">
+        <div class="tabs">
+          <div class="tab active" onclick="showTab(0)">SEARCH</div>
+          <div class="tab" onclick="showTab(1)">DOCS</div>
+          <div class="tab" onclick="showTab(2)">ASK AI</div>
+        </div>
+
+        <div class="tabpane active">
+          <div class="card">
+            <div>Search Latency</div>
+            <h2
+              id="latencyDisplay"
+              style="margin-top: 10px; color: var(--cyan)"
+            >
+              — ms
+            </h2>
+            <div id="algoDisplay" class="small">Select algo and search</div>
+          </div>
+
+          <div class="card">
+            <div>Top Matches</div>
+            <div id="searchResults">
+              <div class="result">Run a search to see results...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tabpane">
+          <div class="card">
+            <div>Insert Documents (RAG)</div>
+            <input style="margin-top: 10px" placeholder="Document title" />
+            <textarea
+              id="doc"
+              style="margin-top: 10px"
+              placeholder="Paste notes..."
+            ></textarea>
+            <button onclick="insertDoc()">Embed & Insert</button>
+          </div>
+          <div class="card">
+            <div>Upload PDF</div>
+            <input
+              type="file"
+              id="pdfFile"
+              accept=".pdf"
+              style="margin-top: 10px"
+            />
+            <button onclick="uploadPDF()">📄 Upload & Embed PDF</button>
+            <div
+              id="pdfStatus"
+              style="margin-top: 8px; font-size: 12px; color: var(--green)"
+            ></div>
+          </div>
+          <div class="card">
+            <div>Stored Documents</div>
+            <div class="result">Dynamic Programming Notes</div>
+            <div class="result">Java Collections</div>
+          </div>
+        </div>
+
+        <div class="tabpane">
+          <div class="card">
+            <textarea
+              id="question"
+              placeholder="Ask a question about documents..."
+            ></textarea>
+            <button onclick="askAI()">🤖 Ask AI</button>
+          </div>
+
+          <div class="chatq">your-??</div>
+          <div class="chata">
+            <div style="color: var(--green); margin-bottom: 8px">
+              LLM ANSWER
+            </div>
+            <div
+              id="algoInfo"
+              style="
+                font-size: 12px;
+                color: var(--cyan);
+                margin-bottom: 8px;
+                padding: 6px 10px;
+                background: rgba(0, 217, 255, 0.08);
+                border-radius: 6px;
+                border: 1px solid rgba(0, 217, 255, 0.2);
+              "
+            >
+              Select an algorithm and ask a question
+            </div>
+            <div id="answer"></div>
+
+            <div style="margin-top: 12px">
+              <span class="ctx">Context 1</span>
+              <span class="ctx">Context 2</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="index.js"></script>
+  </body>
+</html>
