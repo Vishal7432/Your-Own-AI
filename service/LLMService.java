@@ -17,7 +17,15 @@ public class LLMService {
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(12000);
 
-                String prompt = context + " Q: " + question + " A:";
+                String prompt = "You are a helpful assistant. Answer the user's question directly. " +
+                                "Use the provided context if it contains relevant information. " +
+                                "If it doesn't, just use your own general knowledge. " +
+                                "IMPORTANT: Do NOT mention the 'context', 'provided text', or say things like 'the context doesn't mention'. "
+                                +
+                                "Just answer the question naturally.\n\n" +
+                                "Context:\n" + context +
+                                "Question: " + question + "\n\n" +
+                                "Answer: ";
 
                 String safePrompt = prompt
                                 .replace("\\", "\\\\")

@@ -123,8 +123,8 @@ button:hover {
   color: var(--accent);
 }
 #graph {
-  width: 85%;
-  height: 75%;
+  width: 95%;
+  height: 95%;
   border: 1px solid var(--border);
   border-radius: 20px;
   background: radial-gradient(circle at center, #101028, #090912);

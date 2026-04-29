@@ -90,7 +90,7 @@ public class Server {
 
                 System.out.println("Question = " + question + " | Algo = " + algo);
 
-                // ✅ Streaming headers
+                // Streaming headers
                 exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
                 exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
                 exchange.getResponseHeaders().add("Cache-Control", "no-cache");
@@ -115,7 +115,7 @@ public class Server {
                         context = context.substring(0, 300);
                     }
 
-                    // // ✅ Context word by word stream karo
+                    // // Context word by word stream karo
                     // String[] words = context.split(" ");
 
                     // for (String word : words) {
@@ -128,7 +128,7 @@ public class Server {
                     // Thread.sleep(80);
                     // }
 
-                    // ✅ Ollama streaming call
+                    // Ollama streaming call
                     URI uri = URI.create("http://localhost:11434/api/generate");
                     URL url = uri.toURL();
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -166,7 +166,7 @@ public class Server {
                             String token = line.substring(start, end);
                             token = token.replace("\\n", " ");
 
-                            // ✅ SSE format mein bhejo
+                            // SSE format mein bhejo
                             writer.write("data: " + token + "\n\n");
                             writer.flush();
                         }
@@ -183,7 +183,7 @@ public class Server {
                     writer.flush();
                 }
 
-                // ✅ Stream end signal
+                // Stream end signal
                 writer.write("data: [DONE]\n\n");
                 writer.flush();
                 os.close();
@@ -364,7 +364,7 @@ public class Server {
                 System.out.println("Search: " + query + " | Algo: " + algo);
 
                 try {
-                    // ✅ Embedding + timing
+                    // Embedding + timing
                     float[] queryVec = service.EmdService.getEmbedding(query);
 
                     long startTime = System.currentTimeMillis();
@@ -373,7 +373,7 @@ public class Server {
 
                     long latency = System.currentTimeMillis() - startTime;
 
-                    // ✅ JSON response banao
+                    // JSON response banao
                     StringBuilder json = new StringBuilder();
                     json.append("{\"latency\":").append(latency).append(",\"results\":[");
 
@@ -394,12 +394,12 @@ public class Server {
                     }
                     json.append("]}");
 
-                    String response = json.toString()
+                    String response = json.toString();
 
                     exchange.getResponseHeaders().add("Content-Type", "application/json");
                     exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
                     byte[] responseBytes = response.getBytes("UTF-8");
-exchange.sendResponseHeaders(200, responseBytes.length);
+                    exchange.sendResponseHeaders(200, responseBytes.length);
 
                     OutputStream os = exchange.getResponseBody();
                     os.write(responseBytes);
