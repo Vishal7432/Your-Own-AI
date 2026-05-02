@@ -43,6 +43,10 @@ public class Server {
         server.createContext("/insertDoc", new InsertHandler(db));
         server.createContext("/insertPDF", new PDFHandler(db));
         server.createContext("/search", new SearchHandler(db));
+        server.createContext("/items", new ItemsHandler(db));
+        server.createContext("/insert", new InsertVectorHandler(db));
+        server.createContext("/doc/search", new DocSearchHandler(db));
+        server.createContext("/doc/ask", new DocAskHandler(db));
 
         server.setExecutor(null);
         server.start();
@@ -350,7 +354,6 @@ public class Server {
 
                 String body = new String(exchange.getRequestBody().readAllBytes());
 
-                // parse query aur algo
                 String query = "";
                 String algo = "bruteforce";
 
@@ -364,22 +367,22 @@ public class Server {
                 System.out.println("Search: " + query + " | Algo: " + algo);
 
                 try {
-                    // Embedding + timing
                     float[] queryVec = service.EmdService.getEmbedding(query);
 
                     long startTime = System.currentTimeMillis();
-
                     java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 5, algo);
-
+                    java.util.List<model.VectorItem> all = db.getAll();
                     long latency = System.currentTimeMillis() - startTime;
 
-                    // JSON response banao
                     StringBuilder json = new StringBuilder();
-                    json.append("{\"latency\":").append(latency).append(",\"results\":[");
+                    json.append("{\"latency\":").append(latency);
 
+                    // ✅ Results
+                    json.append(",\"results\":[");
                     for (int i = 0; i < results.size(); i++) {
                         model.VectorItem v = results.get(i);
                         String text = v.getText()
+                                .replace("\\", "\\\\")
                                 .replace("\"", "\\\"")
                                 .replace("\n", " ");
                         if (text.length() > 100)
@@ -392,21 +395,289 @@ public class Server {
                         if (i < results.size() - 1)
                             json.append(",");
                     }
+                    json.append("]");
+
+                    // ✅ Result indices (all DB ke relative)
+                    json.append(",\"resultIndices\":[");
+                    for (int i = 0; i < results.size(); i++) {
+                        int idx = all.indexOf(results.get(i));
+                        json.append(idx);
+                        if (i < results.size() - 1)
+                            json.append(",");
+                    }
+                    json.append("]");
+
+                    // ✅ Query vector
+                    json.append(",\"queryVector\":[");
+                    for (int i = 0; i < queryVec.length; i++) {
+                        json.append(queryVec[i]);
+                        if (i < queryVec.length - 1)
+                            json.append(",");
+                    }
+                    json.append("]");
+
+                    // ✅ All vectors — poora DB
+                    json.append(",\"allVectors\":[");
+                    for (int i = 0; i < all.size(); i++) {
+                        json.append("[");
+                        float[] emb = all.get(i).embedding;
+                        for (int j = 0; j < emb.length; j++) {
+                            json.append(emb[j]);
+                            if (j < emb.length - 1)
+                                json.append(",");
+                        }
+                        json.append("]");
+                        if (i < all.size() - 1)
+                            json.append(",");
+                    }
                     json.append("]}");
 
-                    String response = json.toString();
-
+                    byte[] responseBytes = json.toString().getBytes("UTF-8");
                     exchange.getResponseHeaders().add("Content-Type", "application/json");
                     exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    byte[] responseBytes = response.getBytes("UTF-8");
                     exchange.sendResponseHeaders(200, responseBytes.length);
-
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(responseBytes);
-                    os.close();
+                    exchange.getResponseBody().write(responseBytes);
+                    exchange.getResponseBody().close();
 
                 } catch (Exception e) {
                     e.printStackTrace();
+                }
+            }
+        }
+
+    }
+
+    static class ItemsHandler implements HttpHandler {
+        private VectorDatabase db;
+
+        public ItemsHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            //
+            if ("GET".equals(exchange.getRequestMethod()) ||
+                    "POST".equals(exchange.getRequestMethod())) {
+
+            }
+
+            StringBuilder json = new StringBuilder("[");
+            java.util.List<model.VectorItem> all = db.getAll();
+            for (int i = 0; i < all.size(); i++) {
+                model.VectorItem v = all.get(i);
+                json.append("{\"id\":").append(v.id)
+                        .append(",\"metadata\":\"")
+                        .append(v.text.replace("\"", "\\\"").replace("\n", " ").substring(0,
+                                Math.min(80, v.text.length())))
+                        .append("\"")
+                        .append(",\"category\":\"").append(v.category).append("\"")
+                        .append(",\"embedding\":[");
+                for (int j = 0; j < v.embedding.length; j++) {
+                    json.append(v.embedding[j]);
+                    if (j < v.embedding.length - 1)
+                        json.append(",");
+                }
+                json.append("]}");
+                if (i < all.size() - 1)
+                    json.append(",");
+            }
+            json.append("]");
+
+            byte[] responseBytes = json.toString().getBytes("UTF-8");
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, responseBytes.length);
+            exchange.getResponseBody().write(responseBytes);
+            exchange.getResponseBody().close();
+        }
+    }
+
+    static class InsertVectorHandler implements HttpHandler {
+        private VectorDatabase db;
+
+        public InsertVectorHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
+            if ("POST".equals(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes());
+
+                // metadata extract
+                String metadata = "";
+                String category = "doc";
+                if (body.contains("\"metadata\":\"")) {
+                    metadata = body.split("\"metadata\":\"")[1].split("\"")[0];
+                }
+                if (body.contains("\"category\":\"")) {
+                    category = body.split("\"category\":\"")[1].split("\"")[0];
+                }
+
+                // embedding extract
+                int eStart = body.indexOf("\"embedding\":[") + 13;
+                int eEnd = body.indexOf("]", eStart);
+                String[] parts = body.substring(eStart, eEnd).split(",");
+                float[] emb = new float[parts.length];
+                for (int i = 0; i < parts.length; i++) {
+                    emb[i] = Float.parseFloat(parts[i].trim());
+                }
+
+                db.add(new model.VectorItem(db.size() + 1, metadata, category, emb));
+                stores.VectorStorage.save(db);
+
+                String response = "{\"status\":\"ok\"}";
+                byte[] rb = response.getBytes("UTF-8");
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.sendResponseHeaders(200, rb.length);
+                exchange.getResponseBody().write(rb);
+                exchange.getResponseBody().close();
+            }
+        }
+    }
+
+    static class DocSearchHandler implements HttpHandler {
+        private VectorDatabase db;
+
+        public DocSearchHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
+            if ("POST".equals(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes());
+
+                String question = "";
+                if (body.contains("\"question\":\"")) {
+                    question = body.split("\"question\":\"")[1].split("\"")[0];
+                }
+
+                try {
+                    float[] queryVec = service.EmdService.getEmbedding(question);
+                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
+                            "bruteforce");
+
+                    StringBuilder json = new StringBuilder("{\"contexts\":[");
+                    for (int i = 0; i < results.size(); i++) {
+                        model.VectorItem v = results.get(i);
+                        String text = v.text.replace("\"", "\\\"").replace("\n", " ");
+                        if (text.length() > 200)
+                            text = text.substring(0, 200);
+                        json.append("{\"title\":\"").append(v.category).append("\"")
+                                .append(",\"text\":\"").append(text).append("\"")
+                                .append(",\"distance\":0.0}");
+                        if (i < results.size() - 1)
+                            json.append(",");
+                    }
+                    json.append("]}");
+
+                    byte[] rb = json.toString().getBytes("UTF-8");
+                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    exchange.sendResponseHeaders(200, rb.length);
+                    exchange.getResponseBody().write(rb);
+                    exchange.getResponseBody().close();
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    static class DocAskHandler implements HttpHandler {
+        private VectorDatabase db;
+
+        public DocAskHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+
+            if ("POST".equals(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes());
+
+                String question = "";
+                if (body.contains("\"question\":\"")) {
+                    question = body.split("\"question\":\"")[1].split("\"")[0];
+                }
+
+                try {
+                    float[] queryVec = service.EmdService.getEmbedding(question);
+                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
+                            "bruteforce");
+
+                    StringBuilder context = new StringBuilder();
+                    for (model.VectorItem v : results) {
+                        context.append(v.text).append("\n");
+                    }
+
+                    String answer = service.LLMService.askLLM(context.toString(), question);
+                    answer = answer.replace("\"", "\\\"").replace("\n", " ");
+
+                    // contexts bhi bhejo
+                    StringBuilder json = new StringBuilder();
+                    json.append("{\"answer\":\"").append(answer).append("\"")
+                            .append(",\"model\":\"tinyllama\"")
+                            .append(",\"contexts\":[");
+
+                    for (int i = 0; i < results.size(); i++) {
+                        model.VectorItem v = results.get(i);
+                        String text = v.text.replace("\"", "\\\"").replace("\n", " ");
+                        if (text.length() > 150)
+                            text = text.substring(0, 150);
+                        json.append("{\"title\":\"").append(v.category).append(" chunk ").append(i + 1).append("\"")
+                                .append(",\"text\":\"").append(text).append("\"")
+                                .append(",\"distance\":0.0}");
+                        if (i < results.size() - 1)
+                            json.append(",");
+                    }
+                    json.append("]}");
+
+                    byte[] rb = json.toString().getBytes("UTF-8");
+                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    exchange.sendResponseHeaders(200, rb.length);
+                    exchange.getResponseBody().write(rb);
+                    exchange.getResponseBody().close();
+
+                } catch (Exception e) {
+                    String err = "{\"error\":\"" + e.getMessage() + "\",\"contexts\":[]}";
+                    byte[] rb = err.getBytes("UTF-8");
+                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    exchange.sendResponseHeaders(500, rb.length);
+                    exchange.getResponseBody().write(rb);
+                    exchange.getResponseBody().close();
                 }
             }
         }

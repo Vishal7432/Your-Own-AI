@@ -32,7 +32,7 @@ header {
   background: var(--panel);
 }
 h1 {
-  font-size: 18px;
+  font-size: 20px;
   background: linear-gradient(90deg, var(--cyan), var(--accent));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
