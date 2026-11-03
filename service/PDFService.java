@@ -9,7 +9,7 @@ import java.util.*;
 
 public class PDFService {
 
-    // ✅ PDF se text nikalo
+    //  PDF se text nikalo
     public static String extractText(byte[] pdfBytes) throws Exception {
         try (PDDocument doc = Loader.loadPDF(pdfBytes)) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -17,7 +17,7 @@ public class PDFService {
         }
     }
 
-    // ✅ Text ko chunks mein todo (300 words each, 50 word overlap)
+    //  Text ko chunks mein todo (300 words each, 50 word overlap)
     public static List<String> chunkText(String text, int chunkSize, int overlap) {
         String[] words = text.split("\\s+");
         List<String> chunks = new ArrayList<>();

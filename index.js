@@ -9,7 +9,7 @@ let hitIds = new Set(); // highlighted item ids
 let queryPt = null; // query star position
 let hoverItem = null; // hovered item
 let pulse = 0; // animation pulse
-let selectedAlgo = "hnsw"; // current algo
+let selectedAlgo = "bruteforce"; // current algo
 
 // ════════════════════════════════════════════════════════════
 //  ALGO SELECTOR
@@ -20,12 +20,15 @@ function setAlgo(el) {
     .forEach((a) => a.classList.remove("active"));
   el.classList.add("active");
 
-  const text = el.innerText.toLowerCase().trim();
-  if (text === "hnsw") selectedAlgo = "hnsw";
-  else if (text === "kd") selectedAlgo = "kdtree";
-  else selectedAlgo = "bruteforce";
+  selectedAlgo = el.dataset.algo;
 
   console.log("Algo changed to:", selectedAlgo);
+}
+
+function getAlgoLabel(algo) {
+  if (algo === "kdtree-exact") return "KD-tree exact";
+  if (algo === "hnsw-experimental") return "HNSW (experimental)";
+  return "Brute force exact";
 }
 
 // ════════════════════════════════════════════════════════════
@@ -400,7 +403,7 @@ async function askAI() {
   document.getElementById("answer").innerHTML = "thinking... ⏳";
   document.getElementById("algoInfo").innerHTML =
     "🔍 Using: <b>" +
-    selectedAlgo.toUpperCase() +
+    getAlgoLabel(selectedAlgo) +
     "</b> | ⏳ Retrieving context...";
 
   const startTime = Date.now();
@@ -441,7 +444,7 @@ async function askAI() {
   const timeTaken = Date.now() - startTime;
   document.getElementById("algoInfo").innerHTML =
     "✅ Algo: <b>" +
-    selectedAlgo.toUpperCase() +
+    getAlgoLabel(selectedAlgo) +
     "</b> | ⚡ Time: <b>" +
     timeTaken +
     "ms</b>";
@@ -464,7 +467,7 @@ async function runSearch() {
   document.getElementById("latencyDisplay").innerHTML = "⏳ Searching...";
   document.getElementById("searchResults").innerHTML = "Loading...";
   document.getElementById("algoDisplay").innerHTML =
-    selectedAlgo.toUpperCase() + " · searching...";
+    getAlgoLabel(selectedAlgo) + " · searching...";
 
   const startTime = Date.now();
 
@@ -481,7 +484,7 @@ async function runSearch() {
     // Latency display
     document.getElementById("latencyDisplay").innerHTML = data.latency + "ms";
     document.getElementById("algoDisplay").innerHTML =
-      selectedAlgo.toUpperCase() +
+      getAlgoLabel(selectedAlgo) +
       " · cosine · k=5 · client: " +
       clientTime +
       "ms";
@@ -539,6 +542,47 @@ async function runSearch() {
     document.getElementById("latencyDisplay").innerHTML = "Error";
     document.getElementById("searchResults").innerHTML =
       "Server error: " + e.message;
+  }
+}
+
+async function runBenchmark() {
+  const query = document.getElementById("searchInput").value.trim();
+  const status = document.getElementById("benchmarkStatus");
+  const button = document.getElementById("benchmarkButton");
+  if (!query) {
+    status.textContent = "Enter a search query first.";
+    return;
+  }
+
+  button.disabled = true;
+  status.textContent = "Embedding query and benchmarking both algorithms...";
+  try {
+    const response = await fetch(API + "/benchmark", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, k: 5, repetitions: 5 }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || "Benchmark request failed.");
+    }
+
+    const summary = data.benchmarks
+      .map(
+        (result) =>
+          `${getAlgoLabel(result.algorithm)}: ${result.averageMillis.toFixed(3)} ms avg, ` +
+          `${(result.recallAtK * 100).toFixed(0)}% recall@${data.k}`,
+      )
+      .join(" | ");
+    status.textContent =
+      `${summary} · ${data.datasetSize} vectors × ${data.dimensions} dimensions · ` +
+      `index build included, embedding ${data.embeddingMillis.toFixed(1)} ms excluded. ` +
+      `HNSW M=${data.hnswParameters.M}, efConstruction=${data.hnswParameters.efConstruction}, ` +
+      `efSearch=${data.hnswParameters.efSearch}.`;
+  } catch (error) {
+    status.textContent = `Benchmark failed: ${error.message}`;
+  } finally {
+    button.disabled = false;
   }
 }
 

@@ -1,7 +1,13 @@
 package service;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.JsonParseException;
+
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
 public class LLMService {
 
@@ -12,7 +18,7 @@ public class LLMService {
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
                 conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(12000);
@@ -27,47 +33,41 @@ public class LLMService {
                                 "Question: " + question + "\n\n" +
                                 "Answer: ";
 
-                String safePrompt = prompt
-                                .replace("\\", "\\\\")
-                                .replace("\"", "\\\"")
-                                .replace("\n", "\\n");
+                String jsonInput = JsonService.stringify(Map.of(
+                                "model", "tinyllama",
+                                "prompt", prompt,
+                                "stream", true,
+                                "temperature", 0,
+                                "num_predict", 80));
 
-                // ✅ stream: true karo
-                String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
-                                + "\", \"stream\": true, \"temperature\": 0, \"num_predict\": 80}";
-
-                OutputStream os = conn.getOutputStream();
-                os.write(jsonInput.getBytes("utf-8"));
-                os.flush();
-
-                // ✅ Line by line read karo
-                BufferedReader br = new BufferedReader(
-                                new InputStreamReader(conn.getInputStream()));
-
-                StringBuilder fullAnswer = new StringBuilder();
-                String line;
-
-                while ((line = br.readLine()) != null) {
-                        if (line.isEmpty())
-                                continue;
-
-                        // har line ek JSON chunk hai
-                        int start = line.indexOf("\"response\":\"") + 12;
-                        int end = line.indexOf("\"", start);
-
-                        if (start > 11 && end > start) {
-                                String token = line.substring(start, end);
-                                token = token.replace("\\n", " ");
-                                fullAnswer.append(token);
-                        }
-
-                        // done check karo
-                        if (line.contains("\"done\":true"))
-                                break;
+                try (OutputStream os = conn.getOutputStream()) {
+                        os.write(jsonInput.getBytes(StandardCharsets.UTF_8));
                 }
 
-                br.close();
-                conn.disconnect();
+                // Line by line read karo
+                StringBuilder fullAnswer = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(
+                                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                                if (line.isEmpty()) {
+                                        continue;
+                                }
+                                try {
+                                        JsonObject chunk = JsonParser.parseString(line).getAsJsonObject();
+                                        if (chunk.has("response")) {
+                                                fullAnswer.append(chunk.get("response").getAsString());
+                                        }
+                                        if (chunk.has("done") && chunk.get("done").getAsBoolean()) {
+                                                break;
+                                        }
+                                } catch (JsonParseException e) {
+                                        throw new IOException("Ollama returned invalid JSON.", e);
+                                }
+                        }
+                } finally {
+                        conn.disconnect();
+                }
 
                 return fullAnswer.toString().trim();
         }

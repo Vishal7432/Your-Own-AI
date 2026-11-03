@@ -1,66 +1,69 @@
 package service;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import java.io.*;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 
-// pseudo (simplified)  // (Ollama Call)
 public class EmdService {
 
     public static float[] getEmbedding(String text) throws Exception {
-        // HTTP call to Ollama
         URI uri = URI.create("http://localhost:11434/api/embeddings");
-        URL url = uri.toURL();
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+        try {
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(20000);
 
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
+            String jsonInput = JsonService.stringify(Map.of(
+                    "model", "nomic-embed-text",
+                    "prompt", text));
+            try (OutputStream output = conn.getOutputStream()) {
+                output.write(jsonInput.getBytes(StandardCharsets.UTF_8));
+            }
 
-        conn.setConnectTimeout(10000); // 10 sec
-        conn.setReadTimeout(20000); // 20 sec
+            int status = conn.getResponseCode();
+            InputStream responseStream = status >= 200 && status < 300
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+            String response;
+            try (InputStream input = responseStream) {
+                if (input == null) {
+                    throw new IOException("Ollama embedding request failed with HTTP " + status + ".");
+                }
+                response = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            }
+            if (status < 200 || status >= 300) {
+                throw new IOException("Ollama embedding request failed with HTTP " + status + ": " + response);
+            }
 
-        // parse JSON → float[]
+            JsonElement value = JsonParser.parseString(response).getAsJsonObject().get("embedding");
+            if (value == null || !value.isJsonArray() || value.getAsJsonArray().isEmpty()) {
+                throw new IOException("Ollama response did not contain a non-empty embedding array.");
+            }
 
-        String jsonInput = "{ \"model\": \"nomic-embed-text\", \"prompt\": \"" + text + "\" }";
-
-        OutputStream os = conn.getOutputStream();
-        os.write(jsonInput.getBytes("utf-8"));
-        os.flush();
-
-        BufferedReader br = new BufferedReader(
-                new InputStreamReader(conn.getInputStream()));
-
-        StringBuilder response = new StringBuilder();
-        String line;
-
-        while ((line = br.readLine()) != null) {
-            response.append(line);
+            JsonArray values = value.getAsJsonArray();
+            float[] vector = new float[values.size()];
+            for (int i = 0; i < values.size(); i++) {
+                JsonElement item = values.get(i);
+                if (!item.isJsonPrimitive() || !item.getAsJsonPrimitive().isNumber()) {
+                    throw new IOException("Ollama returned a non-numeric embedding value.");
+                }
+                vector[i] = item.getAsFloat();
+                if (!Float.isFinite(vector[i])) {
+                    throw new IOException("Ollama returned a non-finite embedding value.");
+                }
+            }
+            return vector;
+        } finally {
+            conn.disconnect();
         }
-        br.close();
-
-        // 🔥 STEP 1: response ko String banao
-        String res = response.toString();
-
-        // 🔥 STEP 2: embedding array extract karo
-        int start = res.indexOf("\"embedding\":[") + 13;
-        int end = res.indexOf("]", start);
-
-        String arr = res.substring(start, end);
-
-        // 🔥 STEP 3: split karke float[] banao
-        String[] nums = arr.split(",");
-        float[] vector = new float[nums.length];
-
-        for (int i = 0; i < nums.length; i++) {
-            vector[i] = Float.parseFloat(nums[i]);
-        }
-
-        // 🔥 DEBUG (check size)
-        System.out.println("Vector size: " + vector.length);
-
-        conn.disconnect();
-
-        // ✅ FINAL RETURN (IMPORTANT)
-        return vector; // placeholder
     }
 }

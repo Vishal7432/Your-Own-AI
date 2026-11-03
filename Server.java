@@ -1,25 +1,23 @@
-import com.sun.net.httpserver.HttpServer;
-
-import model.VectorItem;
-
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.URI;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+import model.VectorItem;
 import service.EmdService;
-import service.RAGService;
+import service.JsonService;
+import service.PDFService;
 import stores.VectorDatabase;
 import stores.VectorStorage;
-import service.PDFService;
-
-import java.net.URI;
-import java.net.URL;
-import java.net.HttpURLConnection;
 
 public class Server {
 
@@ -43,6 +41,7 @@ public class Server {
         server.createContext("/insertDoc", new InsertHandler(db));
         server.createContext("/insertPDF", new PDFHandler(db));
         server.createContext("/search", new SearchHandler(db));
+        server.createContext("/benchmark", new BenchmarkHandler(db));
         server.createContext("/items", new ItemsHandler(db));
         server.createContext("/insert", new InsertVectorHandler(db));
         server.createContext("/doc/search", new DocSearchHandler(db));
@@ -75,33 +74,39 @@ public class Server {
                 return;
             }
 
-            if ("POST".equals(exchange.getRequestMethod())) {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
 
-                System.out.println("Request received");
-
-                InputStream is = exchange.getRequestBody();
-                String body = new String(is.readAllBytes());
-
-                String question = "";
-                String algo = "bruteforce";
-
-                if (body.contains("\"algo\":\"")) {
-                    question = body.split("\"question\":\"")[1].split("\"")[0];
-                    algo = body.split("\"algo\":\"")[1].split("\"")[0];
-                } else {
-                    question = body.replace("{\"question\":\"", "").replace("\"}", "");
+            String question;
+            String algo;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                question = JsonService.requiredString(request, "question");
+                algo = JsonService.optionalString(request, "algo", "bruteforce");
+                if (!isSupportedAlgorithm(algo)) {
+                    JsonService.send(exchange, 400, JsonService.error("Unsupported search algorithm."));
+                    return;
                 }
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+                return;
+            }
 
-                System.out.println("Question = " + question + " | Algo = " + algo);
+            System.out.println("Request received");
+            System.out.println("Question = " + question + " | Algo = " + algo);
 
-                // Streaming headers
-                exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
-                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                exchange.getResponseHeaders().add("Cache-Control", "no-cache");
-                exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=utf-8");
+            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().add("Cache-Control", "no-cache");
+            exchange.sendResponseHeaders(200, 0);
 
-                OutputStream os = exchange.getResponseBody();
+            try (OutputStream os = exchange.getResponseBody()) {
                 PrintWriter writer = new PrintWriter(new OutputStreamWriter(os, "UTF-8"), true);
+                HttpURLConnection conn = null;
 
                 try {
                     // Embedding + Search
@@ -135,62 +140,61 @@ public class Server {
                     // Ollama streaming call
                     URI uri = URI.create("http://localhost:11434/api/generate");
                     URL url = uri.toURL();
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json");
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     conn.setDoOutput(true);
                     conn.setConnectTimeout(10000);
                     conn.setReadTimeout(180000);
 
                     String prompt = context + " Q: " + question + " A:";
-                    String safePrompt = prompt
-                            .replace("\\", "\\\\")
-                            .replace("\"", "\\\"")
-                            .replace("\n", "\\n");
+                    String jsonInput = JsonService.stringify(Map.of(
+                            "model", "tinyllama",
+                            "prompt", prompt,
+                            "stream", true,
+                            "temperature", 0,
+                            "num_predict", 80));
 
-                    String jsonInput = "{ \"model\": \"tinyllama\", \"prompt\": \"" + safePrompt
-                            + "\", \"stream\": true, \"temperature\": 0, \"num_predict\": 80}";
-
-                    OutputStream ollamaOs = conn.getOutputStream();
-                    ollamaOs.write(jsonInput.getBytes("utf-8"));
-                    ollamaOs.flush();
-
-                    BufferedReader br = new BufferedReader(
-                            new InputStreamReader(conn.getInputStream()));
-
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        if (line.isEmpty())
-                            continue;
-
-                        int start = line.indexOf("\"response\":\"") + 12;
-                        int end = line.indexOf("\"", start);
-
-                        if (start > 11 && end > start) {
-                            String token = line.substring(start, end);
-                            token = token.replace("\\n", " ");
-
-                            // SSE format mein bhejo
-                            writer.write("data: " + token + "\n\n");
-                            writer.flush();
-                        }
-
-                        if (line.contains("\"done\":true"))
-                            break;
+                    try (OutputStream ollamaOs = conn.getOutputStream()) {
+                        ollamaOs.write(jsonInput.getBytes(StandardCharsets.UTF_8));
                     }
 
-                    br.close();
-                    conn.disconnect();
+                    try (BufferedReader br = new BufferedReader(
+                            new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            if (line.isEmpty())
+                                continue;
+
+                            try {
+                                JsonObject chunk = JsonParser.parseString(line).getAsJsonObject();
+                                if (chunk.has("response")) {
+                                    String token = chunk.get("response").getAsString()
+                                            .replace("\r", " ").replace("\n", " ");
+                                    writer.write("data: " + token + "\n\n");
+                                }
+                                writer.flush();
+                                if (chunk.has("done") && chunk.get("done").getAsBoolean()) {
+                                    break;
+                                }
+                            } catch (JsonParseException e) {
+                                throw new IOException("Ollama returned invalid JSON.", e);
+                            }
+                        }
+                    }
 
                 } catch (Exception e) {
-                    writer.write("data: Error: " + e.getMessage() + "\n\n");
+                    writer.write("data: Error: " + e.getMessage().replace("\r", " ").replace("\n", " ") + "\n\n");
                     writer.flush();
+                } finally {
+                    if (conn != null) {
+                        conn.disconnect();
+                    }
                 }
 
                 // Stream end signal
                 writer.write("data: [DONE]\n\n");
                 writer.flush();
-                os.close();
             }
         }
     }
@@ -206,9 +210,6 @@ public class Server {
 
         public void handle(HttpExchange exchange) throws IOException {
 
-            System.out.println(exchange.getRequestMethod());
-
-            // ADD THIS FIRST
             if ("OPTIONS".equals(exchange.getRequestMethod())) {
 
                 exchange.getResponseHeaders().add(
@@ -226,35 +227,30 @@ public class Server {
                 return;
             }
 
-            // ADD THIS TOO
-            if ("POST".equals(exchange.getRequestMethod())) {
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
 
-                String body = new String(exchange.getRequestBody().readAllBytes());
+            String text;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                text = JsonService.requiredString(request, "doc");
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+                return;
+            }
 
-                String text = body.replace("{\"doc\":\"", "")
-                        .replace("\"}", "");
-
-                try {
-
-                    float[] emb = EmdService.getEmbedding(text);
-
-                    db.add(new VectorItem(db.size() + 1, text, "doc", emb));
-                    VectorStorage.save(db);
-
-                    String response = "{\"status\":\"inserted\"}";
-
-                    exchange.getResponseHeaders().add(
-                            "Access-Control-Allow-Origin", "*");
-
-                    exchange.sendResponseHeaders(200, response.length());
-
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(response.getBytes());
-                    os.close();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+            try {
+                float[] embedding = EmdService.getEmbedding(text);
+                db.add(new VectorItem(db.size() + 1, text, "doc", embedding));
+                VectorStorage.save(db);
+                JsonService.send(exchange, 200, Map.of("status", "inserted"));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, JsonService.error("Document insertion failed."));
             }
         }
     }
@@ -309,24 +305,13 @@ public class Server {
                     // Save to disk
                     VectorStorage.save(db);
 
-                    String response = "{\"status\":\"ok\",\"chunks\":" + inserted + "}";
-
-                    exchange.getResponseHeaders().add("Content-Type", "application/json");
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(200, response.length());
-
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(response.getBytes());
-                    os.close();
+                    JsonService.send(exchange, 200, Map.of("status", "ok", "chunks", inserted));
 
                 } catch (Exception e) {
                     e.printStackTrace();
-                    String response = "{\"status\":\"error\",\"message\":\"" + e.getMessage() + "\"}";
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(500, response.length());
-                    OutputStream os = exchange.getResponseBody();
-                    os.write(response.getBytes());
-                    os.close();
+                    JsonService.send(exchange, 500, Map.of(
+                            "status", "error",
+                            "message", "PDF processing failed."));
                 }
             }
         }
@@ -350,101 +335,139 @@ public class Server {
                 return;
             }
 
-            if ("POST".equals(exchange.getRequestMethod())) {
-
-                String body = new String(exchange.getRequestBody().readAllBytes());
-
-                String query = "";
-                String algo = "bruteforce";
-
-                if (body.contains("\"algo\":\"")) {
-                    query = body.split("\"query\":\"")[1].split("\"")[0];
-                    algo = body.split("\"algo\":\"")[1].split("\"")[0];
-                } else {
-                    query = body.replace("{\"query\":\"", "").replace("\"}", "");
-                }
-
-                System.out.println("Search: " + query + " | Algo: " + algo);
-
-                try {
-                    float[] queryVec = service.EmdService.getEmbedding(query);
-
-                    long startTime = System.currentTimeMillis();
-                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 5, algo);
-                    java.util.List<model.VectorItem> all = db.getAll();
-                    long latency = System.currentTimeMillis() - startTime;
-
-                    StringBuilder json = new StringBuilder();
-                    json.append("{\"latency\":").append(latency);
-
-                    // ✅ Results
-                    json.append(",\"results\":[");
-                    for (int i = 0; i < results.size(); i++) {
-                        model.VectorItem v = results.get(i);
-                        String text = v.getText()
-                                .replace("\\", "\\\\")
-                                .replace("\"", "\\\"")
-                                .replace("\n", " ");
-                        if (text.length() > 100)
-                            text = text.substring(0, 100);
-
-                        json.append("{\"rank\":").append(i + 1)
-                                .append(",\"text\":\"").append(text).append("\"")
-                                .append(",\"category\":\"").append(v.category).append("\"}");
-
-                        if (i < results.size() - 1)
-                            json.append(",");
-                    }
-                    json.append("]");
-
-                    // ✅ Result indices (all DB ke relative)
-                    json.append(",\"resultIndices\":[");
-                    for (int i = 0; i < results.size(); i++) {
-                        int idx = all.indexOf(results.get(i));
-                        json.append(idx);
-                        if (i < results.size() - 1)
-                            json.append(",");
-                    }
-                    json.append("]");
-
-                    // ✅ Query vector
-                    json.append(",\"queryVector\":[");
-                    for (int i = 0; i < queryVec.length; i++) {
-                        json.append(queryVec[i]);
-                        if (i < queryVec.length - 1)
-                            json.append(",");
-                    }
-                    json.append("]");
-
-                    // ✅ All vectors — poora DB
-                    json.append(",\"allVectors\":[");
-                    for (int i = 0; i < all.size(); i++) {
-                        json.append("[");
-                        float[] emb = all.get(i).embedding;
-                        for (int j = 0; j < emb.length; j++) {
-                            json.append(emb[j]);
-                            if (j < emb.length - 1)
-                                json.append(",");
-                        }
-                        json.append("]");
-                        if (i < all.size() - 1)
-                            json.append(",");
-                    }
-                    json.append("]}");
-
-                    byte[] responseBytes = json.toString().getBytes("UTF-8");
-                    exchange.getResponseHeaders().add("Content-Type", "application/json");
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(200, responseBytes.length);
-                    exchange.getResponseBody().write(responseBytes);
-                    exchange.getResponseBody().close();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
             }
+
+            String query;
+            String algo;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                query = JsonService.requiredString(request, "query");
+                algo = JsonService.optionalString(request, "algo", "bruteforce");
+                if (!isSupportedAlgorithm(algo)) {
+                    JsonService.send(exchange, 400, JsonService.error("Unsupported search algorithm."));
+                    return;
+                }
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+                return;
+            }
+
+            System.out.println("Search: " + query + " | Algo: " + algo);
+
+            try {
+                float[] queryVec = service.EmdService.getEmbedding(query);
+
+                long startTime = System.currentTimeMillis();
+                java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 5, algo);
+                java.util.List<model.VectorItem> all = db.getAll();
+                long latency = System.currentTimeMillis() - startTime;
+
+                java.util.List<Map<String, Object>> resultItems = new ArrayList<>();
+                java.util.List<Integer> resultIndices = new ArrayList<>();
+                for (int i = 0; i < results.size(); i++) {
+                    model.VectorItem item = results.get(i);
+                    String text = item.getText();
+                    if (text.length() > 100) {
+                        text = text.substring(0, 100);
+                    }
+                    resultItems.add(Map.of(
+                            "rank", i + 1,
+                            "text", text,
+                            "category", item.category));
+                    resultIndices.add(all.indexOf(item));
+                }
+
+                java.util.List<float[]> allVectors = new ArrayList<>();
+                for (model.VectorItem item : all) {
+                    allVectors.add(item.embedding);
+                }
+
+                JsonService.send(exchange, 200, Map.of(
+                        "latency", latency,
+                        "results", resultItems,
+                        "resultIndices", resultIndices,
+                        "queryVector", queryVec,
+                        "allVectors", allVectors));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, JsonService.error("Search failed."));
+            }
+
         }
 
+    }
+
+    static class BenchmarkHandler implements HttpHandler {
+        private final VectorDatabase db;
+
+        BenchmarkHandler(VectorDatabase db) {
+            this.db = db;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("OPTIONS".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "POST, OPTIONS");
+                exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+                exchange.sendResponseHeaders(204, -1);
+                return;
+            }
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
+
+            String query;
+            int k;
+            int repetitions;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                query = JsonService.requiredString(request, "query");
+                k = JsonService.optionalInt(request, "k", 5, 100);
+                repetitions = JsonService.optionalInt(request, "repetitions", 5, 20);
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+                return;
+            }
+
+            try {
+                long embeddingStart = System.nanoTime();
+                float[] queryVector = EmdService.getEmbedding(query);
+                double embeddingMillis = (System.nanoTime() - embeddingStart) / 1_000_000.0;
+                List<Map<String, Object>> measurements = new ArrayList<>();
+                for (service.SearchService.BenchmarkResult result :
+                        service.SearchService.benchmark(db, queryVector, k, repetitions)) {
+                    measurements.add(Map.of(
+                            "algorithm", result.algorithm(),
+                            "recallAtK", result.recallAtK(),
+                            "averageMillis", result.averageMillis(),
+                            "minMillis", result.minMillis(),
+                            "results", result.results()));
+                }
+
+                int dimensions = queryVector.length;
+                JsonService.send(exchange, 200, Map.of(
+                        "datasetSize", db.size(),
+                        "dimensions", dimensions,
+                        "k", k,
+                        "repetitions", repetitions,
+                        "embeddingMillis", embeddingMillis,
+                        "timingIncludesIndexBuild", true,
+                        "hnswParameters", service.SearchService.hnswParameters(k, db.size()),
+                        "benchmarks", measurements));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, JsonService.error("Search benchmark failed."));
+            }
+        }
     }
 
     static class ItemsHandler implements HttpHandler {
@@ -462,40 +485,26 @@ public class Server {
                 exchange.sendResponseHeaders(204, -1);
                 return;
             }
-            //
-            if ("GET".equals(exchange.getRequestMethod()) ||
-                    "POST".equals(exchange.getRequestMethod())) {
-
+            if (!"GET".equals(exchange.getRequestMethod()) && !"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "GET, POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
             }
 
-            StringBuilder json = new StringBuilder("[");
             java.util.List<model.VectorItem> all = db.getAll();
-            for (int i = 0; i < all.size(); i++) {
-                model.VectorItem v = all.get(i);
-                json.append("{\"id\":").append(v.id)
-                        .append(",\"metadata\":\"")
-                        .append(v.text.replace("\"", "\\\"").replace("\n", " ").substring(0,
-                                Math.min(80, v.text.length())))
-                        .append("\"")
-                        .append(",\"category\":\"").append(v.category).append("\"")
-                        .append(",\"embedding\":[");
-                for (int j = 0; j < v.embedding.length; j++) {
-                    json.append(v.embedding[j]);
-                    if (j < v.embedding.length - 1)
-                        json.append(",");
+            java.util.List<Map<String, Object>> items = new ArrayList<>();
+            for (model.VectorItem item : all) {
+                String text = item.text;
+                if (text.length() > 80) {
+                    text = text.substring(0, 80);
                 }
-                json.append("]}");
-                if (i < all.size() - 1)
-                    json.append(",");
+                items.add(Map.of(
+                        "id", item.id,
+                        "metadata", text,
+                        "category", item.category,
+                        "embedding", item.embedding));
             }
-            json.append("]");
-
-            byte[] responseBytes = json.toString().getBytes("UTF-8");
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-            exchange.sendResponseHeaders(200, responseBytes.length);
-            exchange.getResponseBody().write(responseBytes);
-            exchange.getResponseBody().close();
+            JsonService.send(exchange, 200, items);
         }
     }
 
@@ -515,38 +524,47 @@ public class Server {
                 return;
             }
 
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = new String(exchange.getRequestBody().readAllBytes());
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
 
-                // metadata extract
-                String metadata = "";
-                String category = "doc";
-                if (body.contains("\"metadata\":\"")) {
-                    metadata = body.split("\"metadata\":\"")[1].split("\"")[0];
-                }
-                if (body.contains("\"category\":\"")) {
-                    category = body.split("\"category\":\"")[1].split("\"")[0];
-                }
-
-                // embedding extract
-                int eStart = body.indexOf("\"embedding\":[") + 13;
-                int eEnd = body.indexOf("]", eStart);
-                String[] parts = body.substring(eStart, eEnd).split(",");
-                float[] emb = new float[parts.length];
-                for (int i = 0; i < parts.length; i++) {
-                    emb[i] = Float.parseFloat(parts[i].trim());
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                String metadata = JsonService.requiredString(request, "metadata");
+                String category = JsonService.optionalString(request, "category", "doc");
+                if (category.trim().isEmpty()) {
+                    throw new IllegalArgumentException("Field 'category' must not be empty.");
                 }
 
-                db.add(new model.VectorItem(db.size() + 1, metadata, category, emb));
+                if (!request.has("embedding") || !request.get("embedding").isJsonArray()) {
+                    throw new IllegalArgumentException("Field 'embedding' must be a non-empty array of numbers.");
+                }
+                com.google.gson.JsonArray values = request.getAsJsonArray("embedding");
+                if (values.size() == 0) {
+                    throw new IllegalArgumentException("Field 'embedding' must be a non-empty array of numbers.");
+                }
+                float[] embedding = new float[values.size()];
+                for (int i = 0; i < values.size(); i++) {
+                    if (!values.get(i).isJsonPrimitive() || !values.get(i).getAsJsonPrimitive().isNumber()) {
+                        throw new IllegalArgumentException("Field 'embedding' must contain only numbers.");
+                    }
+                    embedding[i] = values.get(i).getAsFloat();
+                    if (!Float.isFinite(embedding[i])) {
+                        throw new IllegalArgumentException("Embedding values must be finite numbers.");
+                    }
+                }
+
+                db.add(new model.VectorItem(db.size() + 1, metadata, category, embedding));
                 stores.VectorStorage.save(db);
-
-                String response = "{\"status\":\"ok\"}";
-                byte[] rb = response.getBytes("UTF-8");
-                exchange.getResponseHeaders().add("Content-Type", "application/json");
-                exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                exchange.sendResponseHeaders(200, rb.length);
-                exchange.getResponseBody().write(rb);
-                exchange.getResponseBody().close();
+                JsonService.send(exchange, 200, Map.of("status", "ok"));
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, JsonService.error("Vector insertion failed."));
             }
         }
     }
@@ -567,43 +585,42 @@ public class Server {
                 return;
             }
 
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = new String(exchange.getRequestBody().readAllBytes());
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
 
-                String question = "";
-                if (body.contains("\"question\":\"")) {
-                    question = body.split("\"question\":\"")[1].split("\"")[0];
-                }
+            String question;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                question = JsonService.requiredString(request, "question");
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, JsonService.error(e.getMessage()));
+                return;
+            }
 
-                try {
-                    float[] queryVec = service.EmdService.getEmbedding(question);
-                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
-                            "bruteforce");
+            try {
+                float[] queryVec = service.EmdService.getEmbedding(question);
+                java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
+                        "bruteforce");
 
-                    StringBuilder json = new StringBuilder("{\"contexts\":[");
-                    for (int i = 0; i < results.size(); i++) {
-                        model.VectorItem v = results.get(i);
-                        String text = v.text.replace("\"", "\\\"").replace("\n", " ");
-                        if (text.length() > 200)
-                            text = text.substring(0, 200);
-                        json.append("{\"title\":\"").append(v.category).append("\"")
-                                .append(",\"text\":\"").append(text).append("\"")
-                                .append(",\"distance\":0.0}");
-                        if (i < results.size() - 1)
-                            json.append(",");
+                java.util.List<Map<String, Object>> contexts = new ArrayList<>();
+                for (model.VectorItem item : results) {
+                    String text = item.text;
+                    if (text.length() > 200) {
+                        text = text.substring(0, 200);
                     }
-                    json.append("]}");
-
-                    byte[] rb = json.toString().getBytes("UTF-8");
-                    exchange.getResponseHeaders().add("Content-Type", "application/json");
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(200, rb.length);
-                    exchange.getResponseBody().write(rb);
-                    exchange.getResponseBody().close();
-
-                } catch (Exception e) {
-                    e.printStackTrace();
+                    contexts.add(Map.of(
+                            "title", item.category,
+                            "text", text,
+                            "distance", 0.0));
                 }
+                JsonService.send(exchange, 200, Map.of("contexts", contexts));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, JsonService.error("Document search failed."));
             }
         }
     }
@@ -624,62 +641,61 @@ public class Server {
                 return;
             }
 
-            if ("POST".equals(exchange.getRequestMethod())) {
-                String body = new String(exchange.getRequestBody().readAllBytes());
+            if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "POST, OPTIONS");
+                JsonService.send(exchange, 405, JsonService.error("Method not allowed."));
+                return;
+            }
 
-                String question = "";
-                if (body.contains("\"question\":\"")) {
-                    question = body.split("\"question\":\"")[1].split("\"")[0];
+            String question;
+            try {
+                JsonObject request = JsonService.parseObject(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                question = JsonService.requiredString(request, "question");
+            } catch (JsonParseException | IllegalArgumentException e) {
+                JsonService.send(exchange, 400, Map.of("error", e.getMessage(), "contexts", List.of()));
+                return;
+            }
+
+            try {
+                float[] queryVec = service.EmdService.getEmbedding(question);
+                java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
+                        "bruteforce");
+
+                StringBuilder context = new StringBuilder();
+                for (model.VectorItem item : results) {
+                    context.append(item.text).append("\n");
                 }
 
-                try {
-                    float[] queryVec = service.EmdService.getEmbedding(question);
-                    java.util.List<model.VectorItem> results = service.SearchService.topK(db, queryVec, 3,
-                            "bruteforce");
-
-                    StringBuilder context = new StringBuilder();
-                    for (model.VectorItem v : results) {
-                        context.append(v.text).append("\n");
+                String answer = service.LLMService.askLLM(context.toString(), question);
+                java.util.List<Map<String, Object>> contexts = new ArrayList<>();
+                for (int i = 0; i < results.size(); i++) {
+                    model.VectorItem item = results.get(i);
+                    String text = item.text;
+                    if (text.length() > 150) {
+                        text = text.substring(0, 150);
                     }
-
-                    String answer = service.LLMService.askLLM(context.toString(), question);
-                    answer = answer.replace("\"", "\\\"").replace("\n", " ");
-
-                    // contexts bhi bhejo
-                    StringBuilder json = new StringBuilder();
-                    json.append("{\"answer\":\"").append(answer).append("\"")
-                            .append(",\"model\":\"tinyllama\"")
-                            .append(",\"contexts\":[");
-
-                    for (int i = 0; i < results.size(); i++) {
-                        model.VectorItem v = results.get(i);
-                        String text = v.text.replace("\"", "\\\"").replace("\n", " ");
-                        if (text.length() > 150)
-                            text = text.substring(0, 150);
-                        json.append("{\"title\":\"").append(v.category).append(" chunk ").append(i + 1).append("\"")
-                                .append(",\"text\":\"").append(text).append("\"")
-                                .append(",\"distance\":0.0}");
-                        if (i < results.size() - 1)
-                            json.append(",");
-                    }
-                    json.append("]}");
-
-                    byte[] rb = json.toString().getBytes("UTF-8");
-                    exchange.getResponseHeaders().add("Content-Type", "application/json");
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(200, rb.length);
-                    exchange.getResponseBody().write(rb);
-                    exchange.getResponseBody().close();
-
-                } catch (Exception e) {
-                    String err = "{\"error\":\"" + e.getMessage() + "\",\"contexts\":[]}";
-                    byte[] rb = err.getBytes("UTF-8");
-                    exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
-                    exchange.sendResponseHeaders(500, rb.length);
-                    exchange.getResponseBody().write(rb);
-                    exchange.getResponseBody().close();
+                    contexts.add(Map.of(
+                            "title", item.category + " chunk " + (i + 1),
+                            "text", text,
+                            "distance", 0.0));
                 }
+                JsonService.send(exchange, 200, Map.of(
+                        "answer", answer,
+                        "model", "tinyllama",
+                        "contexts", contexts));
+            } catch (Exception e) {
+                e.printStackTrace();
+                JsonService.send(exchange, 500, Map.of(
+                        "error", "Document question answering failed.",
+                        "contexts", List.of()));
             }
         }
+    }
+
+    private static boolean isSupportedAlgorithm(String algorithm) {
+        return "bruteforce".equals(algorithm)
+                || "kdtree-exact".equals(algorithm)
+                || "hnsw-experimental".equals(algorithm);
     }
 }
