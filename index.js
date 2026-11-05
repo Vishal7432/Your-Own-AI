@@ -37,11 +37,27 @@ function getAlgoLabel(algo) {
 function showTab(i) {
   document
     .querySelectorAll(".tab")
-    .forEach((t, n) => t.classList.toggle("active", n === i));
+    .forEach((t, n) => {
+      t.classList.toggle("active", n === i);
+      t.setAttribute("aria-selected", n === i ? "true" : "false");
+      t.tabIndex = n === i ? 0 : -1;
+    });
   document
     .querySelectorAll(".tabpane")
     .forEach((p, n) => p.classList.toggle("active", n === i));
 }
+
+document.querySelectorAll(".tab").forEach((tab, index) => {
+  tab.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const next = (index + direction + 3) % 3;
+      showTab(next);
+      document.querySelectorAll(".tab")[next].focus();
+    }
+  });
+});
 
 // ════════════════════════════════════════════════════════════
 //  PCA — 768D → 2D
@@ -98,15 +114,24 @@ const ctx = canvas.getContext("2d");
 let bounds = { minX: -1, maxX: 1, minY: -1, maxY: 1 };
 
 function resizeCanvas() {
-  const r = canvas.parentElement.getBoundingClientRect();
-  canvas.width = r.width;
-  canvas.height = r.height;
+  const r = canvas.getBoundingClientRect();
+  const width = Math.round(r.width);
+  const height = Math.round(r.height);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
 }
 window.addEventListener("resize", resizeCanvas);
+new ResizeObserver(resizeCanvas).observe(canvas);
 resizeCanvas();
 
+function graphPadding() {
+  return Math.max(28, Math.min(60, Math.min(canvas.width, canvas.height) * 0.12));
+}
+
 function w2c(wx, wy) {
-  const P = 60,
+  const P = graphPadding(),
     W = canvas.width,
     H = canvas.height;
   const rx = bounds.maxX - bounds.minX || 1;
@@ -136,16 +161,17 @@ function drawFrame() {
   // Grid
   ctx.strokeStyle = "#0e0e1e";
   ctx.lineWidth = 1;
+  const padding = graphPadding();
   for (let i = 0; i <= 8; i++) {
-    const tx = 60 + (i / 8) * (canvas.width - 120);
-    const ty = 60 + (i / 8) * (canvas.height - 120);
+    const tx = padding + (i / 8) * (canvas.width - padding * 2);
+    const ty = padding + (i / 8) * (canvas.height - padding * 2);
     ctx.beginPath();
-    ctx.moveTo(tx, 60);
-    ctx.lineTo(tx, canvas.height - 60);
+    ctx.moveTo(tx, padding);
+    ctx.lineTo(tx, canvas.height - padding);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(60, ty);
-    ctx.lineTo(canvas.width - 60, ty);
+    ctx.moveTo(padding, ty);
+    ctx.lineTo(canvas.width - padding, ty);
     ctx.stroke();
   }
 

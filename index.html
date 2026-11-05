@@ -7,15 +7,20 @@
     <link rel="stylesheet" href="Index.css" />
   </head>
   <body>
-    <header>
-      <h1>Your Own AI</h1>
-      <span class="badge">EXACT + ANN SEARCH</span>
-      <span class="badge">COSINE</span>
-      <span class="badge ok">OLLAMA ✓</span>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <h1>Your Own AI</h1>
+      </div>
+      <div class="header-meta">
+        <span class="badge">EXACT + ANN SEARCH</span>
+        <span class="badge">COSINE</span>
+        <span class="badge ok">OLLAMA</span>
+      </div>
     </header>
 
-    <div class="layout">
-      <div class="left">
+    <main class="layout">
+      <aside class="left" aria-label="Search tools">
         <div class="sec">QUERY SEARCH</div>
         <input id="searchInput" placeholder="binary tree, java, dp..." />
         <button onclick="runSearch()">⚡ Search</button>
@@ -38,7 +43,7 @@
         </div>
 
         <div class="sec">SIMILARITY METRIC</div>
-        <div class="small">Cosine similarity · exact top-k ranking</div>
+        <div class="small">Cosine similarity · exact baseline + approximate HNSW</div>
 
         <div class="sec">INSERT VECTOR</div>
         <input placeholder="metadata" />
@@ -53,46 +58,37 @@
           Compare Search Algorithms
         </button>
         <div id="benchmarkStatus" class="small" aria-live="polite"></div>
-      </div>
+      </aside>
 
-      <div class="center">
+      <section class="center" aria-label="Vector space visualization">
         <canvas id="graph"></canvas>
-        <div class="fake-dot d1"></div>
-        <div class="fake-dot d2"></div>
-        <div class="fake-dot d3"></div>
-        <div class="star">✦</div>
-      </div>
+      </section>
 
-      <div class="right">
-        <div class="tabs">
-          <div class="tab active" onclick="showTab(0)">SEARCH</div>
-          <div class="tab" onclick="showTab(1)">DOCS</div>
-          <div class="tab" onclick="showTab(2)">ASK AI</div>
+      <section class="right" aria-label="Search, documents, and AI">
+        <div class="tabs" role="tablist" aria-label="Workspace panels">
+          <button class="tab active" id="searchTab" role="tab" aria-selected="true" aria-controls="searchPane" onclick="showTab(0)">SEARCH</button>
+          <button class="tab" id="docsTab" role="tab" aria-selected="false" aria-controls="docsPane" onclick="showTab(1)">DOCS</button>
+          <button class="tab" id="askTab" role="tab" aria-selected="false" aria-controls="askPane" onclick="showTab(2)">ASK AI</button>
         </div>
 
-        <div class="tabpane active">
+        <div class="tabpane active" id="searchPane" role="tabpanel" aria-labelledby="searchTab">
           <div class="card">
-            <div>Search Latency</div>
-            <h2
-              id="latencyDisplay"
-              style="margin-top: 10px; color: var(--cyan)"
-            >
-              — ms
-            </h2>
+            <div class="card-title">Search latency</div>
+            <h2 id="latencyDisplay">— ms</h2>
             <div id="algoDisplay" class="small">Select algo and search</div>
           </div>
 
           <div class="card">
-            <div>Top Matches</div>
+            <div class="card-title">Top matches</div>
             <div id="searchResults">
               <div class="result">Run a search to see results...</div>
             </div>
           </div>
         </div>
 
-        <div class="tabpane">
+        <div class="tabpane" id="docsPane" role="tabpanel" aria-labelledby="docsTab">
           <div class="card">
-            <div>Insert Documents (RAG)</div>
+            <div class="card-title">Add a document</div>
             <input style="margin-top: 10px" placeholder="Document title" />
             <textarea
               id="doc"
@@ -102,7 +98,7 @@
             <button onclick="insertDoc()">Embed & Insert</button>
           </div>
           <div class="card">
-            <div>Upload PDF</div>
+            <div class="card-title">Upload a PDF</div>
             <input
               type="file"
               id="pdfFile"
@@ -116,13 +112,13 @@
             ></div>
           </div>
           <div class="card">
-            <div>Stored Documents</div>
+            <div class="card-title">Stored documents</div>
             <div class="result">Dynamic Programming Notes</div>
             <div class="result">Java Collections</div>
           </div>
         </div>
 
-        <div class="tabpane">
+        <div class="tabpane" id="askPane" role="tabpanel" aria-labelledby="askTab">
           <div class="card">
             <textarea
               id="question"
@@ -131,23 +127,10 @@
             <button onclick="askAI()">🤖 Ask AI</button>
           </div>
 
-          <div class="chatq">your-??</div>
+          <div class="chatq">Your question will appear here.</div>
           <div class="chata">
-            <div style="color: var(--green); margin-bottom: 8px">
-              LLM ANSWER
-            </div>
-            <div
-              id="algoInfo"
-              style="
-                font-size: 12px;
-                color: var(--cyan);
-                margin-bottom: 8px;
-                padding: 6px 10px;
-                background: rgba(0, 217, 255, 0.08);
-                border-radius: 6px;
-                border: 1px solid rgba(0, 217, 255, 0.2);
-              "
-            >
+            <div class="answer-label">AI answer</div>
+            <div id="algoInfo">
               Select an algorithm and ask a question
             </div>
             <div id="answer"></div>
@@ -156,8 +139,8 @@
               <span class="ctx">Context 1</span>
               <span class="ctx">Context 2</span>
             </div> -->
-          </div>
-        </div>
+          </section>
+        </main>
       </div>
     </div>
 
